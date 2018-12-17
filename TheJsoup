@@ -1,0 +1,29 @@
+package cn.btbu;
+
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+
+import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.HttpClients;
+import org.junit.Test;
+
+public class Jsoup {
+
+	@Test
+	public void run() throws IOException {
+		String str = "http://fm.shiyunjj.com/2018/1532/4isl.jpg";
+		HttpClient httpClient = HttpClients.createDefault();
+		HttpGet httpPost = new HttpGet(str);
+		httpPost.addHeader("Referer", "http://www.mmjpg.com/mm/1532/4");
+		httpPost.addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36");
+		HttpResponse execute = httpClient.execute(httpPost);
+		InputStream content = execute.getEntity().getContent();
+		byte[] bytes = new byte[1024];
+		content.read(bytes);
+		FileOutputStream fileWriter = new FileOutputStream("D:\\temp.jpg");
+		fileWriter.write(bytes);
+	}
+}
