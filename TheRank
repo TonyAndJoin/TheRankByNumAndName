@@ -1,0 +1,88 @@
+package cn.btbu;
+
+import org.junit.Test;
+
+import java.text.Collator;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
+public class TheRankByNumAndName {
+
+
+
+	@Test
+	public void run() {
+		List<TempClass> tempClasses = new ArrayList<>();
+		tempClasses.add(new TempClass(5,"黄"));
+		tempClasses.add(new TempClass(5,"李"));
+		tempClasses.add(new TempClass(5,"张"));
+		tempClasses.add(new TempClass(5,"吴"));
+		tempClasses.add(new TempClass(3,"黄"));
+		tempClasses.add(new TempClass(3,"张"));
+		tempClasses.add(new TempClass(3,"吴"));
+		System.out.println(sort(tempClasses));
+	}
+
+	public List<TempClass> sort(List<TempClass> ori) {
+		Collator ch_comp = Collator.getInstance(Locale.CHINA);//中文比较器
+		class Temp {
+			private TempClass content;
+			private int index;
+
+			private Temp(TempClass content, int index) {
+				this.content = content;
+				this.index = index;
+			}
+		}
+		return IntStream.range(0, ori.size()).
+				mapToObj(a1 -> new Temp(ori.get(a1), a1)).
+				sorted((o1, o2) -> {
+					if (o1.content.votenum.equals(o2.content.votenum)) {
+						return ch_comp.compare(o1.content.username, o2.content.username);
+					} else {
+						return o2.content.votenum - o1.content.votenum;
+					}
+				}).
+				map(a1 -> a1.content).collect(Collectors.toList());
+	}
+
+	class TempClass {
+
+		private Integer votenum;
+		private String username;
+
+		public TempClass(Integer votenum, String username) {
+			this.votenum = votenum;
+			this.username = username;
+		}
+
+		public Integer getVotenum() {
+			return votenum;
+		}
+
+		public void setVotenum(Integer votenum) {
+			this.votenum = votenum;
+		}
+
+		public String getUsername() {
+			return username;
+		}
+
+		public void setUsername(String username) {
+			this.username = username;
+		}
+
+		@Override
+		public String toString() {
+			return "TempClass{" +
+					"votenum=" + votenum +
+					", username='" + username + '\'' +
+					'}';
+		}
+	}
+}
+
+
