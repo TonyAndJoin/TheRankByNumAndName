@@ -1,0 +1,29 @@
+package cn.btbu;
+
+import java.io.IOException;
+import java.util.Base64;
+
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.HttpClients;
+import org.junit.Test;
+
+public class TheJsoup {
+	@Test
+	public void run2() throws IOException, InterruptedException {
+	    String url = "http://code.tarena.com.cn";
+	    HttpClient httpClient = HttpClients.createDefault();
+	    HttpGet httpGet = new HttpGet(url);
+
+	    String up = "tarenacode" + ":" + "code_2013";
+	    byte[] encode = Base64.getEncoder().encode(up.getBytes());
+	    String use = new String(encode);
+
+	    httpGet.addHeader("Authorization", "Basic " + use);
+	    byte[] bytes = new byte[1024];
+	    httpClient.execute(httpGet).getEntity().getContent().read(bytes);
+	    String content = new String(bytes);
+	    System.out.println(content);
+	}
+}
+
