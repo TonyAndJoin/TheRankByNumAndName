@@ -1,0 +1,238 @@
+package com.lucy.code.service.impl;
+
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.github.pagehelper.PageHelper;
+import com.github.pagehelper.PageInfo;
+import com.lucy.code.dao.ActivityGroupDao;
+import com.lucy.code.dao.HomePageDao;
+import com.lucy.code.dao.UserDao;
+import com.lucy.code.entity.DTO.ActivitieTotalDTO;
+import com.lucy.code.entity.DTO.ConsumerGroupDTO;
+import com.lucy.code.entity.DTO.GoodsDetailDTO;
+import com.lucy.code.entity.DTO.GroupShareDTO;
+import com.lucy.code.entity.DTO.HomeSlideshowDTO;
+import com.lucy.code.entity.DTO.MerchantMainStartEndDTO;
+import com.lucy.code.entity.DTO.SharePageDTO;
+import com.lucy.code.entity.DTO.UserCollectDTO;
+import com.lucy.code.entity.POJO.ActivitieRedisCount;
+import com.lucy.code.entity.VO.FiltratePageFormVO;
+import com.lucy.code.entity.VO.GoodsDetailVO;
+import com.lucy.code.entity.VO.MerchantMainVO;
+import com.lucy.code.entity.VO.PageFormVO;
+import com.lucy.code.entity.VO.SharePageVO;
+import com.lucy.code.entity.redis.MerchantStoreRedis;
+import com.lucy.code.service.HomePageService;
+import com.lucy.comm.config.RedisConfig;
+import com.lucy.comm.tool.BeanUtil;
+import com.lucy.comm.tool.JsonResult;
+import com.lucy.comm.tool.JwtToken;
+import com.lucy.comm.tool.Md5Util;
+import com.lucy.comm.tool.RedisUtil;
+import com.lucy.comm.tool.StrUtil;
+
+@Service("HomePageService")
+public class HomePageServiceImpl implements HomePageService{
+
+	@Autowired
+	private ActivityGroupDao groupDao;
+	
+	@Autowired
+	private HomePageDao homePageDao;
+
+	@Autowired
+	private RedisUtil redisUtil;
+	
+	@Autowired
+	private UserDao userDao;
+	
+	static JwtToken jwt =JwtToken.getInstance();
+	
+	/**
+	 * 首页数据(redis)
+	 */
+	@Override
+	public String selectHomePageList(PageFormVO vo) {
+		Object redisJson = redisUtil.get(RedisConfig.HomePageList.getName());
+		if(redisJson != null){
+			return redisJson.toString();
+		}
+
+		Map<String, Object> map = BeanUtil.objectToMap(vo);
+		/** 轮播图   **/
+		List<HomeSlideshowDTO> dtos =homePageDao.selectHomeSlideshowList(map);
+		/** 活动列表	 **/
+		PageHelper.startPage(vo.getPage(), vo.getPageSize());
+		List<ActivitieTotalDTO> list =  homePageDao.selectHomeActivitieTotal(map);
+		
+		PageInfo<ActivitieTotalDTO> pageList = new PageInfo<>(list);
+		Map<String, Object> jsonMap = BeanUtil.relustPageMapByHomePage(pageList,dtos);
+		String jsonResult = JsonResult.SUCCESS_OF_DATE(jsonMap);
+		if(list.size() > 0 ){
+			redisUtil.set(RedisConfig.HomePageList.getName(), jsonResult,30);
+		}	
+		return jsonResult;
+	}
+
+	/**
+	 * 过滤数据
+	 */
+	@Override
+	public String selectFiltrateActivityList(FiltratePageFormVO vo) {
+		if(vo == null ){
+			return JsonResult.ERR_INVALID_REQ();
+		}
+		Map<String, Object> map = BeanUtil.objectToMap(vo);		
+		if(vo.getSort() != null){
+			/** 如果是查询距离最近的商家活动  **/
+			if(vo.getSort() == 2){
+				if(vo.getLatitude() == null || vo.getLongitude() == null){
+					return JsonResult.ERR_INVALID_REQ();
+				}
+				
+				PageHelper.startPage(vo.getPage(), vo.getPageSize());
+				List<ActivitieTotalDTO> list =  homePageDao.selectActivitieTotalListByFiltrateOfDistance(map);
+				PageInfo<ActivitieTotalDTO> pageList = new PageInfo<>(list);
+				Map<String, Object> jsonMap = BeanUtil.relustPageMap(pageList);
+				return JsonResult.SUCCESS_OF_DATE(jsonMap);
+			}
+		}
+		
+		
+		PageHelper.startPage(vo.getPage(), vo.getPageSize());
+		List<ActivitieTotalDTO> list =  homePageDao.selectActivitieTotalListByFiltrate(map);
+		PageInfo<ActivitieTotalDTO> pageList = new PageInfo<>(list);
+		Map<String, Object> jsonMap = BeanUtil.relustPageMap(pageList);
+		return JsonResult.SUCCESS_OF_DATE(jsonMap);
+		
+	
+	}
+
+
+	/**
+	 * 商家主页,(正在进行中...  和已经结束的活动 )
+	 * @throws Exception 
+	 */
+	@Override
+	public String selectMerchantMainStartEnd(MerchantMainVO vo) {
+		if(vo != null ){
+			if(vo.getStoreId() == null || vo.getStartPage() == null || vo.getStartPageSzie() == null
+					|| vo.getEndPage() == null || vo.getEndPageSzie() == null){
+				return JsonResult.ERR_INVALID_REQ();
+			}		
+		}else{
+			return JsonResult.ERR_INVALID_REQ();
+		}
+		Map<String, Object> map = BeanUtil.objectToMap(vo);		
+		/** 通过id  查询 redis缓存 **/
+		MerchantStoreRedis merchantStoreRedis = (MerchantStoreRedis)redisUtil.get(RedisConfig.MerchantStore.getName()+vo.getStoreId());
+		MerchantMainStartEndDTO dto = new MerchantMainStartEndDTO();
+		if(merchantStoreRedis == null){
+			/** 如果缓存为null   那就去数据库中查询  **/
+			/** id查询商家店铺的信息 	**/
+			dto = homePageDao.selectMerchanStoreById(map);
+
+		}else{
+			dto = BeanUtil.convertBean(merchantStoreRedis, MerchantMainStartEndDTO.class);
+		}
+		/** 直接把redis缓存  转成  对象 **/
+		
+		/** 拿到该店铺的标识	**/
+		List<String> storeFlagList = StrUtil.strToList(dto.getStoreFlag());
+		dto.setStoreFlagList(storeFlagList);
+		
+		/**	查询进行中的活动(分页)	**/
+		map.put("finsh", 0);
+		PageHelper.startPage(vo.getStartPage(), vo.getStartPageSzie());
+		List<ActivitieTotalDTO> dtosStartList = homePageDao.selectMerchantMainByStartEnd(map);
+		PageInfo<ActivitieTotalDTO> pageStartList = new PageInfo<>(dtosStartList);
+		Map<String, Object> jsonStartMap = BeanUtil.relustPageMap(pageStartList);
+		
+		/**	查询结束中的活动(分页)	**/
+		map.put("finsh", 1);
+		PageHelper.startPage(vo.getEndPage(), vo.getEndPageSzie());
+		List<ActivitieTotalDTO> dtosEndList = homePageDao.selectMerchantMainByStartEnd(map);
+		PageInfo<ActivitieTotalDTO> pageEndList = new PageInfo<>(dtosEndList);
+		Map<String, Object> jsonEndMap = BeanUtil.relustPageMap(pageEndList);
+		
+		dto.setStartList(jsonStartMap);
+		dto.setEndList(jsonEndMap);
+		
+		return JsonResult.SUCCESS_OF_DATE(dto);
+	}
+
+	
+	/**
+	 * 公共浏览缓存
+	 */
+	@Override
+	public void selectActivitieRedisCount(GoodsDetailDTO dto,Map<String, Object> map) {
+		ActivitieRedisCount redisCount = (ActivitieRedisCount)redisUtil.get(RedisConfig.ActivitieRedisCount.getName()+dto.getActivitieId());
+		if(redisCount != null){
+			redisCount.setViewCount(redisCount.getViewCount()+1);		
+			dto.setViewCount(redisCount.getViewCount());
+			
+			/**
+			 * 这里浏览度到到达一定次数的时候  更新下 数据库
+			 */
+			if((redisCount.getViewCount()%100) == 0){
+				/** 如果当前的浏览度是100的整数倍   那就往数据库更新一波	**/
+				map.put("viewCount", redisCount.getViewCount());
+				int i = homePageDao.updateActivityTotalByHomePage(map);
+			}
+			
+			redisUtil.set(RedisConfig.ActivitieRedisCount.getName()+dto.getActivitieId(),redisCount);
+		}else{
+			ActivitieRedisCount newRedisCount = new  ActivitieRedisCount();	//新缓存对象
+			newRedisCount.setApplyCount(dto.getApplyCount());
+			newRedisCount.setShareCount(dto.getApplyCount());
+			newRedisCount.setSuccessCount(dto.getApplyCount());
+			newRedisCount.setViewCount(dto.getApplyCount());
+			/** 缓存丢失   重新放一份缓存上去   **/
+			redisUtil.set(RedisConfig.ActivitieRedisCount.getName()+dto.getActivitieId(),newRedisCount);
+		}
+	}
+
+	/**
+	 * 活动的报名参与人数头像
+	 * @throws Exception 
+	 */
+	@Override
+	public String selectGroupJoinUserList(GoodsDetailVO vo) {
+		if(vo != null ){
+			if(StrUtil.isEmpty(vo.getSn()) || vo.getStoreId() == null){
+				return JsonResult.ERR_INVALID_REQ();
+			}		
+		}else{
+			return JsonResult.ERR_INVALID_REQ();
+		}
+		
+		Map<String, Object> map = BeanUtil.objectToMap(vo);	
+		/** redis **/
+		MerchantStoreRedis merchantStoreRedis = (MerchantStoreRedis)redisUtil.get(RedisConfig.MerchantStore.getName()+vo.getStoreId());
+		String Cover = "";
+		if(merchantStoreRedis == null){
+			/** id查询商家店铺的信息 	**/
+			MerchantMainStartEndDTO Merchantdto = homePageDao.selectMerchanStoreById(map);
+			Cover = Merchantdto.getCover();
+		}else{
+			Cover = merchantStoreRedis.getCover();
+		}
+	
+		
+		List<String> userHeadImageList = groupDao.selectUserHeadImageListByGroup(map);
+		GoodsDetailDTO dto = new GoodsDetailDTO();
+		dto.setUserHeadimageList(userHeadImageList);
+		dto.setCover(Cover);
+		return JsonResult.SUCCESS_OF_DATE(dto);
+	}
+
+	
+	
+	
+	
+}
